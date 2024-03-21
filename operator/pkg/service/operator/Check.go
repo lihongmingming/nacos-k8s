@@ -1,21 +1,18 @@
 package operator
 
 import (
-	"strings"
-
-	corev1 "k8s.io/api/core/v1"
-
 	log "github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	nacosgroupv1alpha1 "nacos.io/nacos-operator/api/v1alpha1"
 	myErrors "nacos.io/nacos-operator/pkg/errors"
 	"nacos.io/nacos-operator/pkg/service/k8s"
 	nacosClient "nacos.io/nacos-operator/pkg/service/nacos"
+	"strings"
 )
 
 type ICheckClient interface {
 	Check(nacos *nacosgroupv1alpha1.Nacos)
 }
-
 type CheckClient struct {
 	k8sService  k8s.Services
 	logger      log.Logger
@@ -28,17 +25,13 @@ func NewCheckClient(logger log.Logger, k8sService k8s.Services) *CheckClient {
 		logger:     logger,
 	}
 }
-
 func (c *CheckClient) CheckKind(nacos *nacosgroupv1alpha1.Nacos) []corev1.Pod {
 	// 保证ss数量和cr副本数匹配
 	ss, err := c.k8sService.GetStatefulSet(nacos.Namespace, nacos.Name)
 	myErrors.EnsureNormal(err)
-
 	if *ss.Spec.Replicas != *nacos.Spec.Replicas {
 		panic(myErrors.New(myErrors.CODE_ERR_UNKNOW, "cr replicas is not equal ss replicas"))
-
 	}
-
 	// 检查正常的pod数量，根据实际情况。如果单实例，必须要有1个;集群要1/2以上
 	pods, err := c.k8sService.GetStatefulSetReadPod(nacos.Namespace, nacos.Name)
 	if len(pods) < (int(*nacos.Spec.Replicas)+1)/2 {
@@ -48,7 +41,6 @@ func (c *CheckClient) CheckKind(nacos *nacosgroupv1alpha1.Nacos) []corev1.Pod {
 	}
 	return pods
 }
-
 func (c *CheckClient) CheckNacos(nacos *nacosgroupv1alpha1.Nacos, pods []corev1.Pod) {
 	leader := ""
 	nacos.Status.Conditions = []nacosgroupv1alpha1.Condition{}
@@ -57,8 +49,8 @@ func (c *CheckClient) CheckNacos(nacos *nacosgroupv1alpha1.Nacos, pods []corev1.
 		servers, err := c.nacosClient.GetClusterNodes(pod.Status.PodIP)
 		myErrors.EnsureNormalMyError(err, myErrors.CODE_CLUSTER_FAILE)
 		// 确保cr中实例个数和server数量相同
-		myErrors.EnsureEqual(len(servers.Servers), int(*nacos.Spec.Replicas), myErrors.CODE_CLUSTER_FAILE, "server num is not equal")
-		for _, svc := range servers.Servers {
+		myErrors.EnsureEqual(len(servers.Data), int(*nacos.Spec.Replicas), myErrors.CODE_CLUSTER_FAILE, "server num is not equal")
+		for _, svc := range servers.Data {
 			myErrors.EnsureEqual(svc.State, "UP", myErrors.CODE_CLUSTER_FAILE, "node is not up")
 			if leader != "" {
 				// 确保每个节点leader相同
@@ -69,7 +61,6 @@ func (c *CheckClient) CheckNacos(nacos *nacosgroupv1alpha1.Nacos, pods []corev1.
 			}
 			nacos.Status.Version = svc.ExtendInfo.Version
 		}
-
 		condition := nacosgroupv1alpha1.Condition{
 			Status:   "true",
 			Instance: pod.Status.PodIP,
@@ -91,5 +82,4 @@ func (c *CheckClient) CheckNacos(nacos *nacosgroupv1alpha1.Nacos, pods []corev1.
 		}
 		nacos.Status.Conditions = append(nacos.Status.Conditions, condition)
 	}
-
 }
